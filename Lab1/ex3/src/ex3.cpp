@@ -10,6 +10,7 @@
 #include "FreeRTOS.h"
 #include "task.h"
 #include "heap_lock_monitor.h"
+#include "DigitalIoPin.h"
 
 /*****************************************************************************
  * Private types/enumerations/variables
@@ -37,20 +38,22 @@ static void prvSetupHardware(void)
 
 /* UART (or output) thread */
 static void vUARTTask(void *pvParameters) {
-    uint8_t sec = 0;
-    uint8_t min = 0;
+	unsigned int tickCnt = 0;
+    unsigned int delay = configTICK_RATE_HZ;
+    bool LedState = false;
+    DigitalIoPin sw1(0, 17, true, true, true);
 
 	while (1) {
-		DEBUGOUT("Time: %02d:%02d \r\n", min, sec);
-        sec++;
-        if(sec >= 60) {
-            sec = 0;
-            min++;
-            if(min >= 60) min = 0;
-        }
+		DEBUGOUT("Tick: %d \r\n", tickCnt);
+		tickCnt++;
 
-		/* About a 1s delay here */
-		vTaskDelay(configTICK_RATE_HZ);
+        Board_LED_Set(1, LedState);
+		LedState = (bool) !LedState;
+        
+        if(sw1.read()) delay = configTICK_RATE_HZ / 10;
+        else delay = configTICK_RATE_HZ;
+
+		vTaskDelay(delay);
 	}
 }
 
