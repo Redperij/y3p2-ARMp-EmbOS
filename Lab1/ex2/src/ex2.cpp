@@ -23,6 +23,9 @@
  * Private functions
  ****************************************************************************/
 
+void morse_send_s(unsigned int dot, unsigned int dash);
+void morse_send_o(unsigned int dot, unsigned int dash);
+
 /* Sets up system hardware */
 static void prvSetupHardware(void)
 {
@@ -33,6 +36,33 @@ static void prvSetupHardware(void)
 	Board_LED_Set(0, false);
     Board_LED_Set(1, false);
     Board_LED_Set(2, false);
+}
+
+static void vSOSTask(void *pvParameters) {
+    unsigned int dot = configTICK_RATE_HZ / 20;
+    unsigned int dash = dot * 3;
+
+    while(1) {
+        morse_send_s(dot, dash); //5d
+        vTaskDelay(dash); //3d + 5d = 8d
+        morse_send_o(dot, dash); //11d + 8d = 19d
+        vTaskDelay(dash); //3d + 19d = 22d
+        morse_send_s(dot, dash); //5d + 22d = 27d
+
+        vTaskDelay(dot * 7); //7d + 27d = 34d
+    }
+}
+
+static void vGreenTask(void *pvParameters) {
+    bool LedState = false;
+    unsigned int dot = configTICK_RATE_HZ / 20;
+
+    while(1) {
+        Board_LED_Set(1, LedState);
+		LedState = (bool) !LedState;
+
+        vTaskDelay(dot * 34);
+    }
 }
 
 /* UART (or output) thread */
@@ -48,7 +78,6 @@ static void vUARTTask(void *pvParameters) {
             min++;
             if(min >= 60) min = 0;
         }
-
 		/* About a 1s delay here */
 		vTaskDelay(configTICK_RATE_HZ);
 	}
@@ -85,9 +114,39 @@ int main(void)
 				configMINIMAL_STACK_SIZE + 256, NULL, (tskIDLE_PRIORITY + 1UL),
 				(TaskHandle_t *) NULL);
 
+    /* Sends SOS via red LED */
+	xTaskCreate(vSOSTask, "vSOSUart",
+				configMINIMAL_STACK_SIZE + 256, NULL, (tskIDLE_PRIORITY + 1UL),
+				(TaskHandle_t *) NULL);
+
+    /* Blinks green LED every other SOS */
+	xTaskCreate(vGreenTask, "vGreenTask",
+				configMINIMAL_STACK_SIZE + 256, NULL, (tskIDLE_PRIORITY + 1UL),
+				(TaskHandle_t *) NULL);
+
 	/* Start the scheduler */
 	vTaskStartScheduler();
 
 	/* Should never arrive here */
 	return 1;
+}
+
+void morse_send_s(unsigned int dot, unsigned int dash) {
+    //Send 3 dots.
+    for(int i = 0; i < 3; i++) {
+        Board_LED_Set(0, true);
+        vTaskDelay(dot);
+        Board_LED_Set(0, false);
+        if(i < 2) vTaskDelay(dot);
+    }
+}
+
+void morse_send_o(unsigned int dot, unsigned int dash) {
+    //Send 3 dashes.
+    for(int i = 0; i < 3; i++) {
+        Board_LED_Set(0, true);
+        vTaskDelay(dash);
+        Board_LED_Set(0, false);
+        if(i < 2) vTaskDelay(dot);
+    }
 }
