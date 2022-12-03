@@ -9,7 +9,10 @@
 #include <cr_section_macros.h>
 #include "FreeRTOS.h"
 #include "task.h"
+#include "queue.h"
 #include "heap_lock_monitor.h"
+#include "Fmutex.h"
+#include "LpcUart.h"
 
 /*****************************************************************************
  * Private types/enumerations/variables
@@ -46,6 +49,41 @@ static void vUARTTask(void *pvParameters) {
 	}
 }
 
+void vTestTask(void *pvParameters)
+{
+	LpcPinMap none = { .port = -1, .pin = -1}; // unused pin has negative values in it
+	LpcPinMap txpin = { .port = 0, .pin = 18 }; // transmit pin that goes to debugger's UART->USB converter
+	LpcPinMap rxpin = { .port = 0, .pin = 13 }; // receive pin that goes to debugger's UART->USB converter
+	LpcUartConfig cfg = { 
+			.pUART = LPC_USART0, 
+			.speed = 115200, 
+			.data = UART_CFG_DATALEN_8 | UART_CFG_PARITY_NONE | UART_CFG_STOPLEN_1, 
+			.rs485 = false, 
+			.tx = txpin, 
+			.rx = rxpin, 
+			.rts = none, 
+			.cts = none 
+	};
+	LpcUart *dbgu = new LpcUart(cfg);
+
+	
+	char str[80];
+	int count = 0;
+
+	/* Set up SWO to PIO1_2 to enable ITM */
+	Chip_SWM_MovablePortPinAssign(SWM_SWO_O, 1, 2);
+
+	while (1) {
+		count = dbgu->read(str, 80, portTICK_PERIOD_MS * 100);
+		if(count > 0) {
+			dbgu->write(str);
+		}
+		else {
+			/* receive timed out */
+		}
+	}
+}
+
 /*****************************************************************************
  * Public functions
  ****************************************************************************/
@@ -72,10 +110,13 @@ int main(void)
 	
 	heap_monitor_setup();
 
-	
+	Fmutex mutex;
 
 	/* UART output thread, simply counts seconds */
 	xTaskCreate(vUARTTask, "vTaskUart",
+				configMINIMAL_STACK_SIZE + 256, NULL, (tskIDLE_PRIORITY + 1UL),
+				(TaskHandle_t *) NULL);
+	xTaskCreate(vTestTask, "vTestTask",
 				configMINIMAL_STACK_SIZE + 256, NULL, (tskIDLE_PRIORITY + 1UL),
 				(TaskHandle_t *) NULL);
 
