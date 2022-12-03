@@ -37,20 +37,12 @@ static void prvSetupHardware(void)
 
 /* UART (or output) thread */
 static void vUARTTask(void *pvParameters) {
-    uint8_t sec = 0;
-    uint8_t min = 0;
 
 	while (1) {
-		DEBUGOUT("Time: %02d:%02d \r\n", min, sec);
-        sec++;
-        if(sec >= 60) {
-            sec = 0;
-            min++;
-            if(min >= 60) min = 0;
-        }
+		printf("Hello?\r\n");
 
 		/* About a 1s delay here */
-		vTaskDelay(configTICK_RATE_HZ);
+		vTaskDelay(1000);
 	}
 }
 
@@ -79,6 +71,8 @@ int main(void)
 	prvSetupHardware();
 	
 	heap_monitor_setup();
+
+	
 
 	/* UART output thread, simply counts seconds */
 	xTaskCreate(vUARTTask, "vTaskUart",
