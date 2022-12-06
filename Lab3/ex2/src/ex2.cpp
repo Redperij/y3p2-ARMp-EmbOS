@@ -7,13 +7,27 @@
 #endif
 
 #include <cr_section_macros.h>
+#include <cstdio>
+#include <cstring>
+#include <cstdlib>
 #include "FreeRTOS.h"
 #include "task.h"
+#include "queue.h"
 #include "heap_lock_monitor.h"
+#include "Fmutex.h"
+#include "LpcUart.h"
+#include "DigitalIoPin.h"
+
+typedef struct TaskData {
+	LpcUart *uart;
+	Fmutex *guard;
+} TaskData;
 
 /*****************************************************************************
  * Private types/enumerations/variables
  ****************************************************************************/
+
+static QueueHandle_t q1;
 
 /*****************************************************************************
  * Public types/enumerations/variables
@@ -23,11 +37,9 @@
  * Private functions
  ****************************************************************************/
 
-void morse_send_s(unsigned int dot, unsigned int dash);
-void morse_send_o(unsigned int dot, unsigned int dash);
-
 /* Sets up system hardware */
-static void prvSetupHardware(void)
+static void
+prvSetupHardware(void)
 {
 	SystemCoreClockUpdate();
 	Board_Init();
@@ -38,48 +50,59 @@ static void prvSetupHardware(void)
     Board_LED_Set(2, false);
 }
 
-static void vSOSTask(void *pvParameters) {
-    unsigned int dot = configTICK_RATE_HZ / 20;
-    unsigned int dash = dot * 3;
-
-    while(1) {
-        morse_send_s(dot, dash); //5d
-        vTaskDelay(dash); //3d + 5d = 8d
-        morse_send_o(dot, dash); //11d + 8d = 19d
-        vTaskDelay(dash); //3d + 19d = 22d
-        morse_send_s(dot, dash); //5d + 22d = 27d
-
-        vTaskDelay(dot * 7); //7d + 27d = 34d
-    }
+static void
+vRandNumTask(void *pvParameters)
+{
+    //TaskData *t = static_cast<TaskData *>(pvParameters);
+    int randn = 0;
+    int randdelay = 0;
+    while (1)
+	{
+        randn = rand() % 400 + 100;
+        randdelay = rand() % 400 + 100;
+        xQueueSendToBack(q1, (void *) &randn, portMAX_DELAY);
+	    vTaskDelay(randdelay);
+	}
 }
 
-static void vGreenTask(void *pvParameters) {
-    bool LedState = false;
-    unsigned int dot = configTICK_RATE_HZ / 20;
-
-    while(1) {
-        Board_LED_Set(1, LedState);
-		LedState = (bool) !LedState;
-
-        vTaskDelay(dot * 34);
-    }
-}
-
-/* UART (or output) thread */
-static void vUARTTask(void *pvParameters) {
-    uint8_t sec = 0;
-    uint8_t min = 0;
-
-	while (1) {
-		DEBUGOUT("Time: %02d:%02d \r\n", min, sec);
-        sec++;
-        if(sec >= 60) {
-            sec = 0;
-            min++;
-            if(min >= 60) min = 0;
+static void
+vReadButtonTask(void *pvParameters)
+{
+	//TaskData *t = static_cast<TaskData *>(pvParameters);
+	DigitalIoPin sw1(0, 17, true, true, true);
+	int help = 112;
+	bool sw1_pressed = false;
+	while(1)
+	{
+		if(sw1.read())
+		{
+			sw1_pressed = true;
+		}
+		else if(sw1_pressed){
+            xQueueSendToFront(q1, (void *) &help, portMAX_DELAY);
+			sw1_pressed = false;
         }
-		/* About a 1s delay here */
-		vTaskDelay(configTICK_RATE_HZ);
+		vTaskDelay(1);
+	}
+}
+
+static void
+vPrintQueue(void *pvParameters)
+{
+	TaskData *t = static_cast<TaskData *>(pvParameters);
+	int buf = 0;
+	while(1)
+	{
+		xQueueReceive(q1, &buf, portMAX_DELAY);
+        char str[255];
+		if(buf != 112)
+            snprintf(str, 255, "%d\r\n", buf);
+		else
+			snprintf(str, 255, "%d Help me\r\n", buf);
+		t->guard->lock();
+		t->uart->write(str);
+		t->guard->unlock();
+        if(buf == 112) vTaskDelay(800);
 	}
 }
 
@@ -109,19 +132,37 @@ int main(void)
 	
 	heap_monitor_setup();
 
+	LpcPinMap none = { .port = -1, .pin = -1}; // unused pin has negative values in it
+	LpcPinMap txpin = { .port = 0, .pin = 18 }; // transmit pin that goes to debugger's UART->USB converter
+	LpcPinMap rxpin = { .port = 0, .pin = 13 }; // receive pin that goes to debugger's UART->USB converter
+	LpcUartConfig cfg = {
+			.pUART = LPC_USART0,
+			.speed = 115200,
+			.data = UART_CFG_DATALEN_8 | UART_CFG_PARITY_NONE | UART_CFG_STOPLEN_1,
+			.rs485 = false,
+			.tx = txpin,
+			.rx = rxpin,
+			.rts = none,
+			.cts = none
+	};
+	LpcUart *uart = new LpcUart(cfg);
+	Fmutex *guard = new Fmutex();
+
+	static TaskData t;
+
+	q1 = xQueueCreate(5, sizeof(int));
+	t.uart = uart;
+	t.guard = guard;
+
 	/* UART output thread, simply counts seconds */
-	xTaskCreate(vUARTTask, "vTaskUart",
-				configMINIMAL_STACK_SIZE + 256, NULL, (tskIDLE_PRIORITY + 1UL),
+	xTaskCreate(vRandNumTask, "vRandNumTask",
+				configMINIMAL_STACK_SIZE + 256, &t, (tskIDLE_PRIORITY + 1UL),
 				(TaskHandle_t *) NULL);
-
-    /* Sends SOS via red LED */
-	xTaskCreate(vSOSTask, "vSOSUart",
-				configMINIMAL_STACK_SIZE + 256, NULL, (tskIDLE_PRIORITY + 1UL),
+	xTaskCreate(vReadButtonTask, "vReadButtonTask",
+				configMINIMAL_STACK_SIZE + 256, &t, (tskIDLE_PRIORITY + 1UL),
 				(TaskHandle_t *) NULL);
-
-    /* Blinks green LED every other SOS */
-	xTaskCreate(vGreenTask, "vGreenTask",
-				configMINIMAL_STACK_SIZE + 256, NULL, (tskIDLE_PRIORITY + 1UL),
+	xTaskCreate(vPrintQueue, "vPrintQueue",
+				configMINIMAL_STACK_SIZE + 256, &t, (tskIDLE_PRIORITY + 1UL),
 				(TaskHandle_t *) NULL);
 
 	/* Start the scheduler */
@@ -129,24 +170,4 @@ int main(void)
 
 	/* Should never arrive here */
 	return 1;
-}
-
-void morse_send_s(unsigned int dot, unsigned int dash) {
-    //Send 3 dots.
-    for(int i = 0; i < 3; i++) {
-        Board_LED_Set(0, true);
-        vTaskDelay(dot);
-        Board_LED_Set(0, false);
-        if(i < 2) vTaskDelay(dot);
-    }
-}
-
-void morse_send_o(unsigned int dot, unsigned int dash) {
-    //Send 3 dashes.
-    for(int i = 0; i < 3; i++) {
-        Board_LED_Set(0, true);
-        vTaskDelay(dash);
-        Board_LED_Set(0, false);
-        if(i < 2) vTaskDelay(dot);
-    }
 }
