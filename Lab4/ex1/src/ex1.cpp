@@ -43,12 +43,12 @@ extern "C" {
 void PIN_INT0_IRQHandler(void) {
 	static ButData bd;
 	portBASE_TYPE xHigherPriorityWoken = pdFALSE;
-    Chip_PININT_ClearIntStatus(LPC_GPIO_PIN_INT, PININTCH(0));
 	
 	bd.nbutton = 1;
 	bd.timestamp = 0;
 	xQueueSendToBackFromISR(q, (void *) &bd, &xHigherPriorityWoken);
 
+    Chip_PININT_ClearIntStatus(LPC_GPIO_PIN_INT, PININTCH(0));
 	portEND_SWITCHING_ISR(xHigherPriorityWoken);
 }
 #ifdef __cplusplus
@@ -61,12 +61,12 @@ extern "C" {
 void PIN_INT1_IRQHandler(void) {
 	static ButData bd;
 	portBASE_TYPE xHigherPriorityWoken = pdFALSE;
-    Chip_PININT_ClearIntStatus(LPC_GPIO_PIN_INT, PININTCH(1));
 	
 	bd.nbutton = 2;
 	bd.timestamp = 0;
 	xQueueSendToBackFromISR(q, (void *) &bd, &xHigherPriorityWoken);
 
+    Chip_PININT_ClearIntStatus(LPC_GPIO_PIN_INT, PININTCH(1));
 	portEND_SWITCHING_ISR(xHigherPriorityWoken);
 }
 #ifdef __cplusplus
@@ -79,12 +79,12 @@ extern "C" {
 void PIN_INT2_IRQHandler(void) {
 	static ButData bd;
 	portBASE_TYPE xHigherPriorityWoken = pdFALSE;
-    Chip_PININT_ClearIntStatus(LPC_GPIO_PIN_INT, PININTCH(2));
 	
 	bd.nbutton = 3;
 	bd.timestamp = 0;
 	xQueueSendToBackFromISR(q, (void *) &bd, &xHigherPriorityWoken);
 
+    Chip_PININT_ClearIntStatus(LPC_GPIO_PIN_INT, PININTCH(2));
 	portEND_SWITCHING_ISR(xHigherPriorityWoken);
 }
 #ifdef __cplusplus
@@ -114,7 +114,7 @@ vConfigureInterrupts(void)
 	/* Initialize PININT driver */
 	Chip_PININT_Init(LPC_GPIO_PIN_INT);
 
-	//vTaskDelay(20);
+	//Filter out sw2 bounce. lpcxpresso specific.
 	for(int i = 0; i < 10000; i++);
 
 	/* Enable PININT clock */
@@ -178,12 +178,6 @@ vReadUARTTask(void *pvParameters)
 				t->guard->unlock();
 				if(sscanf(str, "filter %d", &time))
 				{
-					char buf[255];
-					snprintf(buf, 255, "Filter in reading: %d\r\n", time);
-					t->guard->lock();
-					t->uart->write(buf);
-					t->guard->unlock();
-
 					static ButData bd;
 					bd.nbutton = num;
 					bd.timestamp = time;
@@ -214,63 +208,28 @@ vButtonTask(void *pvParameters)
 	while(1)
 	{
 		xQueueReceive(q, &bd, portMAX_DELAY);
-		if(bd.nbutton != 4) bd.timestamp = xTaskGetTickCount();
-		switch (bd.nbutton)
+		if(bd.nbutton != 4)
 		{
-		//Button 1
-		case 1:
+			bd.timestamp = xTaskGetTickCount();
 			if(bd.timestamp - prev_timestamp > filter_time)
 			{
-				t->guard->lock();
-				t->uart->write("Button 1 pressed.\r\n");
-				t->guard->unlock();
-			}
-			else
-			{
 				char buf[255];
-				snprintf(buf, 255, "Fast. Prev time: %d, Cur time: %d, Diff: %d\r\n", prev_timestamp, bd.timestamp, bd.timestamp - prev_timestamp);
+				snprintf(buf, 255, "%d ms Button %d\r\n", bd.timestamp - prev_timestamp, bd.nbutton);
 				t->guard->lock();
 				t->uart->write(buf);
 				t->guard->unlock();
 			}
 			prev_timestamp = bd.timestamp;
-			break;
-		//Button 2
-		case 2:
-			if(bd.timestamp - prev_timestamp > filter_time)
-			{
-				t->guard->lock();
-				t->uart->write("Button 2 pressed.\r\n");
-				t->guard->unlock();
-			}
-			prev_timestamp = bd.timestamp;
-			break;
-		//Button 3
-		case 3:
-			if(bd.timestamp - prev_timestamp > filter_time)
-			{
-				t->guard->lock();
-				t->uart->write("Button 3 pressed.\r\n");
-				t->guard->unlock();
-			}
-			prev_timestamp = bd.timestamp;
-			break;
-		//Change filtering time
-		case 4:
+		}
+		else
+		{
 			filter_time = bd.timestamp;
-			t->guard->lock();
-			t->uart->write("Changed filtering time.\r\n");
-			t->guard->unlock();
 
 			char buf[255];
-			snprintf(buf, 255, "New filter: %d\r\n", filter_time);
+			snprintf(buf, 255, "Changed filtering time.\r\nNew filter: %d\r\n", filter_time);
 			t->guard->lock();
 			t->uart->write(buf);
 			t->guard->unlock();
-			break;
-		//WTF, AWAY, AWAY WITH YOU.
-		default:
-			break;
 		}
 	}
 }
@@ -323,7 +282,7 @@ int main(void)
 	LpcUart *uart = new LpcUart(cfg);
 	Fmutex *guard = new Fmutex();
 
-	q = xQueueCreate(10, sizeof(ButData));
+	q = xQueueCreate(50, sizeof(ButData));
 
 	static TaskData t;
 	t.uart = uart;
