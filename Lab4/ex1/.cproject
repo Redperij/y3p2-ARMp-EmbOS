@@ -276,9 +276,6 @@
 	<storageModule moduleId="cdtBuildSystem" version="4.0.0">
 		<project id="ex1.com.crt.advproject.projecttype.exe.772984749" name="Executable" projectType="com.crt.advproject.projecttype.exe"/>
 	</storageModule>
-	<storageModule moduleId="scannerConfiguration">
-		<autodiscovery enabled="true" problemReportingEnabled="true" selectedProfileId=""/>
-	</storageModule>
 	<storageModule moduleId="org.eclipse.cdt.core.LanguageSettingsProviders"/>
 	<storageModule moduleId="com.crt.config">
 		<projectStorage>&lt;?xml version="1.0" encoding="UTF-8"?&gt;&#13;
@@ -320,4 +317,16 @@
 		</configuration>
 	</storageModule>
 	<storageModule moduleId="org.eclipse.cdt.make.core.buildtargets"/>
+	<storageModule moduleId="scannerConfiguration">
+		<autodiscovery enabled="true" problemReportingEnabled="true" selectedProfileId=""/>
+		<scannerConfigBuildInfo instanceId="com.crt.advproject.config.exe.debug.235046590;com.crt.advproject.config.exe.debug.235046590.;com.crt.advproject.gcc.exe.debug.1152799892;com.crt.advproject.compiler.input.2076940093">
+			<autodiscovery enabled="true" problemReportingEnabled="true" selectedProfileId="com.crt.advproject.GCCManagedMakePerProjectProfile"/>
+		</scannerConfigBuildInfo>
+		<scannerConfigBuildInfo instanceId="com.crt.advproject.config.exe.debug.235046590;com.crt.advproject.config.exe.debug.235046590.;com.crt.advproject.cpp.exe.debug.188678765;com.crt.advproject.compiler.cpp.input.142589637">
+			<autodiscovery enabled="true" problemReportingEnabled="true" selectedProfileId="com.crt.advproject.GCCManagedMakePerProjectProfileCPP"/>
+		</scannerConfigBuildInfo>
+		<scannerConfigBuildInfo instanceId="com.crt.advproject.config.exe.debug.235046590;com.crt.advproject.config.exe.debug.235046590.;com.crt.advproject.gas.exe.debug.721533498;com.crt.advproject.assembler.input.2076963775">
+			<autodiscovery enabled="true" problemReportingEnabled="true" selectedProfileId="com.crt.advproject.GCCManagedMakePerProjectProfile"/>
+		</scannerConfigBuildInfo>
+	</storageModule>
 </cproject>
