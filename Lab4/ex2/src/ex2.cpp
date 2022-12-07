@@ -9,7 +9,6 @@
 #include <cr_section_macros.h>
 #include <cstdio>
 #include <cstring>
-#include <cstdlib>
 #include "FreeRTOS.h"
 #include "task.h"
 #include "queue.h"
@@ -18,20 +17,40 @@
 #include "LpcUart.h"
 #include "DigitalIoPin.h"
 
+/*****************************************************************************
+ * Private types/enumerations/variables
+ ****************************************************************************/
+
+static QueueHandle_t q;
+
+static DigitalIoPin siga(1, 6, true, true, true);
+static DigitalIoPin sigb(0, 8, true, true, true);
+
+/*****************************************************************************
+ * Public types/enumerations/variables
+ ****************************************************************************/
+
 typedef struct TaskData {
 	LpcUart *uart;
 	Fmutex *guard;
 } TaskData;
 
-/*****************************************************************************
- * Private types/enumerations/variables
- ****************************************************************************/
+#ifdef __cplusplus
+extern "C" {
+#endif
+void PIN_INT0_IRQHandler(void) {
+	static bool clockwise;
+	portBASE_TYPE xHigherPriorityWoken = pdFALSE;
+	
+	clockwise = siga.read();
+	xQueueSendToBackFromISR(q, (void *) &clockwise, &xHigherPriorityWoken);
 
-static QueueHandle_t q1;
-
-/*****************************************************************************
- * Public types/enumerations/variables
- ****************************************************************************/
+    Chip_PININT_ClearIntStatus(LPC_GPIO_PIN_INT, PININTCH(0));
+	portEND_SWITCHING_ISR(xHigherPriorityWoken);
+}
+#ifdef __cplusplus
+}
+#endif
 
 /*****************************************************************************
  * Private functions
@@ -51,58 +70,79 @@ prvSetupHardware(void)
 }
 
 static void
-vRandNumTask(void *pvParameters)
+vConfigureInterrupts(void)
 {
-    //TaskData *t = static_cast<TaskData *>(pvParameters);
-    int randn = 0;
-    int randdelay = 0;
-    while (1)
-	{
-        randn = rand() % 400 + 100;
-        randdelay = rand() % 400 + 100;
-        xQueueSendToBack(q1, (void *) &randn, portMAX_DELAY);
-	    vTaskDelay(randdelay);
-	}
+	/* Initialize PININT driver */
+	Chip_PININT_Init(LPC_GPIO_PIN_INT);
+
+	//Filter out sw2 bounce. lpcxpresso specific.
+	for(int i = 0; i < 10000; i++);
+
+	/* Enable PININT clock */
+	Chip_Clock_EnablePeriphClock(SYSCTL_CLOCK_PININT);
+
+	/* Reset the PININT block */
+	Chip_SYSCTL_PeriphReset(RESET_PININT);
+
+	/* Configure interrupt channel for the GPIO pin in INMUX block */
+	Chip_INMUX_PinIntSel(0, 0, 8);
+
+	/* Configure channel interrupt as edge sensitive and falling edge interrupt */
+	Chip_PININT_ClearIntStatus(LPC_GPIO_PIN_INT, PININTCH(0));
+	Chip_PININT_SetPinModeEdge(LPC_GPIO_PIN_INT, PININTCH(0));
+	//Chip_PININT_EnableIntLow(LPC_GPIO_PIN_INT, PININTCH(0));
+	Chip_PININT_EnableIntLow(LPC_GPIO_PIN_INT, PININTCH(0));
+	Chip_PININT_DisableIntHigh(LPC_GPIO_PIN_INT, PININTCH(0));
+
+	/* Enable interrupt in the NVIC */
+	NVIC_ClearPendingIRQ(PIN_INT0_IRQn);
+	NVIC_SetPriority(PIN_INT0_IRQn, configMAX_SYSCALL_INTERRUPT_PRIORITY + 1);
+	NVIC_EnableIRQ(PIN_INT0_IRQn);
 }
 
 static void
-vReadButtonTask(void *pvParameters)
-{
-	//TaskData *t = static_cast<TaskData *>(pvParameters);
-	DigitalIoPin sw1(0, 17, true, true, true);
-	int help = 112;
-	bool sw1_pressed = false;
-	while(1)
-	{
-		if(sw1.read())
-		{
-			sw1_pressed = true;
-		}
-		else if(sw1_pressed){
-            xQueueSendToFront(q1, (void *) &help, portMAX_DELAY);
-			sw1_pressed = false;
-        }
-		vTaskDelay(1);
-	}
-}
-
-static void
-vPrintQueue(void *pvParameters)
+vButtonTask(void *pvParameters)
 {
 	TaskData *t = static_cast<TaskData *>(pvParameters);
-	int buf = 0;
+	bool clockwise = false;
+	int value = 10;
+
+	t->uart->write("Started waiting:\r\n");
 	while(1)
 	{
-		xQueueReceive(q1, &buf, portMAX_DELAY);
-        char str[255];
-		if(buf != 112)
-            snprintf(str, 255, "%d\r\n", buf);
+		if(xQueueReceive(q, &clockwise, (TickType_t) 5000))
+		{
+			if(clockwise)
+			{
+				value--;
+				char buf[255];
+				snprintf(buf, 255, "clck %d\r\n", value);
+				t->guard->lock();
+				t->uart->write(buf);
+				t->guard->unlock();
+			}
+			else
+			{
+				value++;
+				char buf[255];
+				snprintf(buf, 255, "nclck %d\r\n", value);
+				t->guard->lock();
+				t->uart->write(buf);
+				t->guard->unlock();
+			}
+			vTaskDelay(50);
+		}
 		else
-			snprintf(str, 255, "%d Help me\r\n", buf);
-		t->guard->lock();
-		t->uart->write(str);
-		t->guard->unlock();
-        if(buf == 112) vTaskDelay(800);
+		{
+			value = 10;
+			char buf[255];
+			snprintf(buf, 255, "timeout %d\r\n", value);
+			t->guard->lock();
+			t->uart->write(buf);
+			t->guard->unlock();
+		}
+		vTaskDelay(1);
+		
 	}
 }
 
@@ -132,6 +172,12 @@ int main(void)
 	
 	heap_monitor_setup();
 
+	//static DigitalIoPin sw1(0, 17 ,true ,true, false);
+	//static DigitalIoPin sw2(1, 11 ,true ,true, false);
+	//static DigitalIoPin sw3(1, 9 ,true ,true, false);
+
+	vConfigureInterrupts();
+
 	LpcPinMap none = { .port = -1, .pin = -1}; // unused pin has negative values in it
 	LpcPinMap txpin = { .port = 0, .pin = 18 }; // transmit pin that goes to debugger's UART->USB converter
 	LpcPinMap rxpin = { .port = 0, .pin = 13 }; // receive pin that goes to debugger's UART->USB converter
@@ -148,20 +194,13 @@ int main(void)
 	LpcUart *uart = new LpcUart(cfg);
 	Fmutex *guard = new Fmutex();
 
-	static TaskData t;
+	q = xQueueCreate(50, sizeof(bool));
 
-	q1 = xQueueCreate(5, sizeof(int));
+	static TaskData t;
 	t.uart = uart;
 	t.guard = guard;
 
-	/* UART output thread, simply counts seconds */
-	xTaskCreate(vRandNumTask, "vRandNumTask",
-				configMINIMAL_STACK_SIZE + 256, &t, (tskIDLE_PRIORITY + 1UL),
-				(TaskHandle_t *) NULL);
-	xTaskCreate(vReadButtonTask, "vReadButtonTask",
-				configMINIMAL_STACK_SIZE + 256, &t, (tskIDLE_PRIORITY + 1UL),
-				(TaskHandle_t *) NULL);
-	xTaskCreate(vPrintQueue, "vPrintQueue",
+	xTaskCreate(vButtonTask, "vButtonTask",
 				configMINIMAL_STACK_SIZE + 256, &t, (tskIDLE_PRIORITY + 1UL),
 				(TaskHandle_t *) NULL);
 
@@ -169,5 +208,7 @@ int main(void)
 	vTaskStartScheduler();
 
 	/* Should never arrive here */
+	delete uart;
+	delete guard;
 	return 1;
 }
