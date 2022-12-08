@@ -23,8 +23,8 @@
 
 static QueueHandle_t q;
 
-static DigitalIoPin siga(1, 6, true, true, true);
-static DigitalIoPin sigb(0, 8, true, true, true);
+static DigitalIoPin siga(1, 6, DigitalIoPin::input, true);
+static DigitalIoPin sigb(0, 8, DigitalIoPin::input, true);
 
 /*****************************************************************************
  * Public types/enumerations/variables

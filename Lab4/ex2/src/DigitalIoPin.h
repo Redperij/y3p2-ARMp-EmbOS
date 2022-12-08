@@ -1,22 +1,29 @@
+/*
+ * DigitalIoPin.h
+ *
+ *  Created on: 31.1.2016
+ *      Author: krl
+ */
+
 #ifndef DIGITALIOPIN_H_
 #define DIGITALIOPIN_H_
 
-#include "chip.h"
-#include "board.h"
-
 class DigitalIoPin {
 public:
-	DigitalIoPin(int port, int pin, bool input = true, bool pullup = true, bool invert = false);
-	//DigitalIoPin(const DigitalIoPin &) = delete;
+	enum pinMode {
+		output,
+		input,
+		pullup,
+		pulldown
+	};
+	DigitalIoPin(int port, int pin, pinMode mode, bool invert = false);
 	virtual ~DigitalIoPin();
-	bool read();
+	virtual bool read();
 	void write(bool value);
 private:
 	int port;
 	int pin;
-	bool input;
-	bool pullup;
-	bool invert;
+	bool inv;
 };
 
 #endif /* DIGITALIOPIN_H_ */
