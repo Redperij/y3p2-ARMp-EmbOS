@@ -136,7 +136,7 @@ vButtonTask(void *pvParameters)
 				}
 				prev_timestamp = timestamp;
 			}
-			vTaskDelay(50);
+			//vTaskDelay(50);
 		}
 		else
 		{
