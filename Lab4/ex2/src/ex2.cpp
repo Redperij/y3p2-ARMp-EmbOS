@@ -106,37 +106,44 @@ vButtonTask(void *pvParameters)
 	TaskData *t = static_cast<TaskData *>(pvParameters);
 	bool clockwise = false;
 	int value = 10;
+	int prev_timestamp = 0;
 
 	t->uart->write("Started waiting:\r\n");
 	while(1)
 	{
 		if(xQueueReceive(q, &clockwise, (TickType_t) 5000))
 		{
-			if(clockwise)
+			int timestamp = xTaskGetTickCount();
+			if (timestamp - prev_timestamp > 70)
 			{
-				value--;
-				char buf[255];
-				snprintf(buf, 255, "clck %d\r\n", value);
-				t->guard->lock();
-				t->uart->write(buf);
-				t->guard->unlock();
-			}
-			else
-			{
-				value++;
-				char buf[255];
-				snprintf(buf, 255, "nclck %d\r\n", value);
-				t->guard->lock();
-				t->uart->write(buf);
-				t->guard->unlock();
+				if(clockwise)
+				{
+					value--;
+					char buf[255];
+					snprintf(buf, 255, "[%d] clck %d\r\n", timestamp, value);
+					t->guard->lock();
+					t->uart->write(buf);
+					t->guard->unlock();
+				}
+				else
+				{
+					value++;
+					char buf[255];
+					snprintf(buf, 255, "[%d] nclck %d\r\n", timestamp, value);
+					t->guard->lock();
+					t->uart->write(buf);
+					t->guard->unlock();
+				}
+				prev_timestamp = timestamp;
 			}
 			vTaskDelay(50);
 		}
 		else
 		{
+			int timestamp = xTaskGetTickCount();
 			value = 10;
 			char buf[255];
-			snprintf(buf, 255, "timeout %d\r\n", value);
+			snprintf(buf, 255, "[%d] timeout %d\r\n", timestamp, value);
 			t->guard->lock();
 			t->uart->write(buf);
 			t->guard->unlock();
