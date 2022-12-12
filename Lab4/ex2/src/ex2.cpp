@@ -23,8 +23,7 @@
 
 static QueueHandle_t q;
 
-static DigitalIoPin siga(1, 6, DigitalIoPin::input, true);
-static DigitalIoPin sigb(0, 8, DigitalIoPin::input, true);
+static DigitalIoPin *psiga;
 
 /*****************************************************************************
  * Public types/enumerations/variables
@@ -42,7 +41,7 @@ void PIN_INT0_IRQHandler(void) {
 	static bool clockwise;
 	portBASE_TYPE xHigherPriorityWoken = pdFALSE;
 	
-	clockwise = siga.read();
+	clockwise = psiga->read();
 	xQueueSendToBackFromISR(q, (void *) &clockwise, &xHigherPriorityWoken);
 
     Chip_PININT_ClearIntStatus(LPC_GPIO_PIN_INT, PININTCH(0));
@@ -93,34 +92,46 @@ vConfigureInterrupts(void)
 	//Chip_PININT_EnableIntLow(LPC_GPIO_PIN_INT, PININTCH(0));
 	Chip_PININT_EnableIntLow(LPC_GPIO_PIN_INT, PININTCH(0));
 	Chip_PININT_DisableIntHigh(LPC_GPIO_PIN_INT, PININTCH(0));
-
-	/* Enable interrupt in the NVIC */
-	NVIC_ClearPendingIRQ(PIN_INT0_IRQn);
-	NVIC_SetPriority(PIN_INT0_IRQn, configMAX_SYSCALL_INTERRUPT_PRIORITY + 1);
-	NVIC_EnableIRQ(PIN_INT0_IRQn);
 }
+
+#define USE_FILTER 0
 
 static void
 vButtonTask(void *pvParameters)
 {
+	DigitalIoPin siga(1, 6, DigitalIoPin::pullup, true); //No mater what I set here, it still behaves the same.
+	DigitalIoPin sigb(0, 8, DigitalIoPin::pullup, true);
+	psiga = &siga;
 	TaskData *t = static_cast<TaskData *>(pvParameters);
 	bool clockwise = false;
 	int value = 10;
 	int prev_timestamp = 0;
+
+	//Just for the sake of having the interrupt after the pin initialisation.
+	/* Enable interrupt in the NVIC */
+	NVIC_ClearPendingIRQ(PIN_INT0_IRQn);
+	NVIC_SetPriority(PIN_INT0_IRQn, configMAX_SYSCALL_INTERRUPT_PRIORITY + 1);
+	NVIC_EnableIRQ(PIN_INT0_IRQn);
 
 	t->uart->write("Started waiting:\r\n");
 	while(1)
 	{
 		if(xQueueReceive(q, &clockwise, (TickType_t) 5000))
 		{
+			#if USE_FILTER
 			int timestamp = xTaskGetTickCount();
 			if (timestamp - prev_timestamp > 70)
 			{
+			#endif
 				if(clockwise)
 				{
 					value--;
 					char buf[255];
+					#if USE_FILTER
 					snprintf(buf, 255, "[%d] clck %d\r\n", timestamp, value);
+					#else
+					snprintf(buf, 255, "clck %d\r\n", value);
+					#endif
 					t->guard->lock();
 					t->uart->write(buf);
 					t->guard->unlock();
@@ -129,13 +140,19 @@ vButtonTask(void *pvParameters)
 				{
 					value++;
 					char buf[255];
+					#if USE_FILTER
 					snprintf(buf, 255, "[%d] nclck %d\r\n", timestamp, value);
+					#else
+					snprintf(buf, 255, "nclck %d\r\n", value);
+					#endif
 					t->guard->lock();
 					t->uart->write(buf);
 					t->guard->unlock();
 				}
+			#if USE_FILTER
 				prev_timestamp = timestamp;
 			}
+			#endif
 			//vTaskDelay(50);
 		}
 		else
