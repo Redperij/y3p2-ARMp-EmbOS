@@ -23,7 +23,11 @@
 
 static QueueHandle_t q;
 
-static DigitalIoPin *psiga;
+DigitalIoPin *psiga;
+DigitalIoPin *psigb;
+DigitalIoPin *pa5;
+
+//bool flag = false;
 
 /*****************************************************************************
  * Public types/enumerations/variables
@@ -38,13 +42,17 @@ typedef struct TaskData {
 extern "C" {
 #endif
 void PIN_INT0_IRQHandler(void) {
+    Chip_PININT_ClearIntStatus(LPC_GPIO_PIN_INT, PININTCH(0));
 	static bool clockwise;
 	portBASE_TYPE xHigherPriorityWoken = pdFALSE;
-	
-	clockwise = psiga->read();
-	xQueueSendToBackFromISR(q, (void *) &clockwise, &xHigherPriorityWoken);
 
-    Chip_PININT_ClearIntStatus(LPC_GPIO_PIN_INT, PININTCH(0));
+	if(!psigb->read())
+	{
+		//flag = !flag;
+		//pa5->write(flag);
+		clockwise = psiga->read();
+		xQueueSendToBackFromISR(q, (void *) &clockwise, &xHigherPriorityWoken);
+	}
 	portEND_SWITCHING_ISR(xHigherPriorityWoken);
 }
 #ifdef __cplusplus
@@ -89,19 +97,21 @@ vConfigureInterrupts(void)
 	/* Configure channel interrupt as edge sensitive and falling edge interrupt */
 	Chip_PININT_ClearIntStatus(LPC_GPIO_PIN_INT, PININTCH(0));
 	Chip_PININT_SetPinModeEdge(LPC_GPIO_PIN_INT, PININTCH(0));
-	//Chip_PININT_EnableIntLow(LPC_GPIO_PIN_INT, PININTCH(0));
 	Chip_PININT_EnableIntLow(LPC_GPIO_PIN_INT, PININTCH(0));
 	Chip_PININT_DisableIntHigh(LPC_GPIO_PIN_INT, PININTCH(0));
 }
 
-#define USE_FILTER 0
+#define USE_FILTER 1
 
 static void
 vButtonTask(void *pvParameters)
 {
-	DigitalIoPin siga(1, 6, DigitalIoPin::pullup, true); //No mater what I set here, it still behaves the same.
-	DigitalIoPin sigb(0, 8, DigitalIoPin::pullup, true);
+	DigitalIoPin siga(1, 6, DigitalIoPin::input, false); //No mater what I set here, it still behaves the same.
+	DigitalIoPin sigb(0, 8, DigitalIoPin::input, false);
+	DigitalIoPin a5(0, 7, DigitalIoPin::output, true);
 	psiga = &siga;
+	psigb = &sigb;
+	pa5 = &a5;
 	TaskData *t = static_cast<TaskData *>(pvParameters);
 	bool clockwise = false;
 	int value = 10;
@@ -120,7 +130,7 @@ vButtonTask(void *pvParameters)
 		{
 			#if USE_FILTER
 			int timestamp = xTaskGetTickCount();
-			if (timestamp - prev_timestamp > 70)
+			if (timestamp - prev_timestamp > 10)
 			{
 			#endif
 				if(clockwise)
@@ -166,7 +176,6 @@ vButtonTask(void *pvParameters)
 			t->guard->unlock();
 		}
 		vTaskDelay(1);
-		
 	}
 }
 
